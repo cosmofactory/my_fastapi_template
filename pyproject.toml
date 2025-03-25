@@ -1,0 +1,64 @@
+[project]
+name = "fastapi-template"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "aiosmtplib>=4.0.0",
+    "aiosqlite>=0.21.0",
+    "alembic>=1.15.1",
+    "asyncpg>=0.30.0",
+    "bcrypt>=4.3.0",
+    "fastapi[standard]>=0.115.11",
+    "itsdangerous>=2.2.0",
+    "jinja2>=3.1.6",
+    "logfire[fastapi]>=3.7.1",
+    "passlib>=1.7.4",
+    "pydantic>=2.10.6",
+    "pydantic-settings>=2.8.1",
+    "pyjwt>=2.10.1",
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.25.3",
+    "ruff>=0.9.10",
+    "sqladmin>=0.20.1",
+    "sqlalchemy>=2.0.38",
+    "sqlmodel>=0.0.24",
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src",
+    "tests",
+]
+
+[tool.hatch.build.targets.wheel]
+include = [
+    "src",
+    "tests",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.flake8]
+max-line-length = 100
+ignore = ["B008"]
+exclude = ["src/migrations/*.py",]
+
+[tool.ruff]
+line-length = 100
+exclude = ["src/migrations/*.py",]
+lint.extend-select = ["I", "W", "B", "I",]
+
+
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+python_files = ["*_test.py", "*_tests.py", "test_*.py"]
+addopts = "-vv -p no:cacheprovider"
+
+[tool.ruff.lint.flake8-bugbear]
+# Allow default arguments like, e.g., `data: List[str] = fastapi.Query(None)`.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]
