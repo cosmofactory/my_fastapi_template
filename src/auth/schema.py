@@ -1,14 +1,16 @@
 from pydantic import BaseModel, EmailStr
 
+from src.core.schema import OrmModel
 
-class UserRegisterInput(BaseModel):
+
+class UserRegisterInput(OrmModel):
     """User registration schema."""
 
     email: EmailStr
     password: str
 
 
-class UserLoginOutput(BaseModel):
+class UserLoginOutput(OrmModel):
     """User login schema."""
 
     id: int

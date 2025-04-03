@@ -33,6 +33,7 @@ from src.emails.service import render_verification_email, send_email
 from src.settings import settings
 from src.users.dao import UserDAO
 from src.users.models import User
+from src.users.schema import SUser
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
@@ -65,7 +66,7 @@ async def authenticate_user(session: AsyncSession, email, password) -> UserLogin
     logfire.info("User", user=user)
     if not user or not verify_password(password, user.password):
         raise InvalidCredentialsException
-    return UserLoginOutput(**user.model_dump())
+    return UserLoginOutput.model_validate(user)
 
 
 def create_access_token(data: dict, expires_delta: datetime.timedelta):
@@ -146,12 +147,12 @@ async def get_current_user(
         token_data = TokenData(email=email)
     except InvalidTokenError:
         raise credentials_exception from None
-    user: User = await UserDAO.get_first(
+    user: SUser = await UserDAO.get_first(
         session, filters=[FilterCondition(User.email == token_data.email)]
     )
     if not user:
         raise credentials_exception
-    return CurrentUser.model_validate(user.model_dump())
+    return CurrentUser.model_validate(user)
 
 
 async def get_current_verified_user(
@@ -284,7 +285,7 @@ async def verify_email(token: str, session: AsyncSession) -> None:
     except jwt.InvalidTokenError as e:
         raise InvalidTokenTypeException from e
 
-    user: User = await UserDAO.get_first(session, filters=[FilterCondition(User.email == email)])
+    user: SUser = await UserDAO.get_first(session, filters=[FilterCondition(User.email == email)])
     if not user:
         raise UserNotFoundException
 

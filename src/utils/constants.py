@@ -8,3 +8,4 @@ class AdminIcons:
     """Admin icons templates from fontawesome."""
 
     USERS_ICON = "fa-solid fa-user"
+    GENERATIONS_ICON = "fa-solid fa-flask"

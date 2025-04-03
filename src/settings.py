@@ -5,6 +5,34 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 ENV_FILE: str = ".env"
 
 
+class S3Settings(BaseSettings):
+    ACCESS_KEY: str
+    SECRET_KEY: str
+    ENDPOINT_URL: str = "https://s3storage1.fra1.digitaloceanspaces.com"
+    REGION: str = "fra1"
+    BUCKET_NAME: str
+    URL_EXPIRATION_SECONDS: int = 3600
+
+    model_config = SettingsConfigDict(env_file=ENV_FILE, env_prefix="S3_", extra="ignore")
+
+
+class MinimaxSettings(BaseSettings):
+    API_KEY: str
+    BASE_URL: str = "https://api.minimaxi.chat/v1/"
+    GROUP_ID: str
+    VIDEO_GENERATION_ENDPOINT: str = "video_generation"
+    VIDEO_RETRIEVAL_ENDPOINT: str = "files/retrieve"
+    VIDEO_STATUS_ENDPOINT: str = "query"
+    CONTENT_TYPE: str = "application/json"
+    AUTHORITY_HEADER: dict = {"authority": "api.minimaxi.chat"}
+    SUCCESSFUL_STATUS: int = 0
+    STATUS_CALLBACK_URL: str = "https://api-magic.avetechnologies.pro/generations/callback_url"
+    DEFAULT_VIDEO_CONTENT_TYPE: str = "video/mp4"
+    DEFAULT_FILE_EXTENSION: str = ".mp4"
+
+    model_config = SettingsConfigDict(env_file=ENV_FILE, env_prefix="MINIMAX_", extra="ignore")
+
+
 class EmailServiceSettings(BaseSettings):
     SMTP_HOST: str
     SMTP_PORT: int
@@ -47,11 +75,13 @@ class Settings(BaseSettings):
     SERVICE_NAME: str = "moi"
     ENV: Literal["prod", "demo", "test"] = "demo"
     LOGFIRE_TOKEN: str | None = None
-    PROJECT_NAME: str = "Fastapi Template"
+    PROJECT_NAME: str = "Magician of Images"
 
     auth: AuthSettings = AuthSettings()
     database: DBSettings = DBSettings()
     email_service: EmailServiceSettings = EmailServiceSettings()
+    minimax: MinimaxSettings = MinimaxSettings()
+    s3: S3Settings = S3Settings()
 
     @property
     def VEIRIFICATION_URL(self) -> str:

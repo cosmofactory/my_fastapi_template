@@ -2,37 +2,42 @@ import pytest
 from fastapi import status
 from httpx import AsyncClient
 from httpx._transports.asgi import ASGITransport
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
-from sqlmodel import Session, SQLModel
-from sqlmodel.pool import StaticPool
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 
 from src.auth.service import get_password_hash
+from src.core.engine import Base
 from src.core.session import get_async_session
 from src.main import app
 from src.users.models import User
 
-DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+SQLALCHEMY_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 
-@pytest.fixture(name="session", scope="session")
-async def session_fixture():
-    engine = create_async_engine(
-        DATABASE_URL, connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    async_session_maker = sessionmaker(
-        engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-    )
+engine = create_async_engine(
+    SQLALCHEMY_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
 
-    def get_session_override():
-        return session
+SessionLocal = async_sessionmaker(
+    bind=engine,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False,
+)
 
-    app.dependency_overrides[get_async_session] = get_session_override
+
+@pytest.fixture(scope="session")
+async def session():
     async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
-    async with async_session_maker() as session:
+        await conn.run_sync(Base.metadata.create_all)
+    async with SessionLocal() as session:
+
+        def override_get_db():
+            return session
+
+        app.dependency_overrides[get_async_session] = override_get_db
         yield session
 
 
@@ -44,7 +49,7 @@ async def ac():
 
 
 @pytest.fixture(scope="session")
-async def ac_client(session: Session):
+async def ac_client(session: AsyncSession):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as client:
         password = get_password_hash("client_password1")
         user = User(email="test@user.com", password=password, is_superuser=False, is_verified=True)
@@ -68,7 +73,7 @@ async def ac_client(session: Session):
 
 
 @pytest.fixture(scope="session")
-async def ac_client_not_verified(session: Session):
+async def ac_client_not_verified(session: AsyncSession):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as client:
         password = get_password_hash("client_password1")
         user = User(email="unverified@user.com", password=password, is_superuser=False)

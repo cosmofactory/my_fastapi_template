@@ -16,6 +16,7 @@ async def test_profile_me(ac_client: AsyncClient):
 
     assert response.status_code == 200
     assert data["email"] == "test@user.com"
+    assert data.get("password") is None
 
 
 async def test_profile_me_not_verified(ac_client_not_verified: AsyncClient):
