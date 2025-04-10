@@ -93,7 +93,7 @@ def create_refresh_token(data: dict, expires_delta: datetime.timedelta):
     return encoded_jwt
 
 
-async def create_tokens(session: AsyncSession, user: UserLoginOutput) -> dict:
+async def create_tokens(user: UserLoginOutput) -> dict:
     """
     Call the create_access_token and create_refresh_token.
 
@@ -109,26 +109,34 @@ async def create_tokens(session: AsyncSession, user: UserLoginOutput) -> dict:
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
+        "access_token_expires": access_token_expires.total_seconds(),
+        "refresh_token_expires": refresh_token_expires.total_seconds(),
     }
 
 
-async def set_cookies(response: Response, access_token: str, refresh_token: str):
+async def set_cookies(
+    response: Response,
+    access_token: str,
+    refresh_token: str,
+    access_token_expires: float,
+    refresh_token_expires: float,
+) -> None:
     """Set the access token and refresh token as cookies."""
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
-        secure=True,
-        samesite="Lax",
-        max_age=settings.auth.ACCESS_TOKEN_EXPIRE_MINUTES,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.SAMESITE_VALUE,
+        max_age=int(access_token_expires),
     )
     response.set_cookie(
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=False,
-        samesite="Lax",
-        max_age=settings.auth.REFRESH_TOKEN_EXPIRE_DAYS,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.SAMESITE_VALUE,
+        max_age=int(refresh_token_expires),
     )
 
 
@@ -199,8 +207,14 @@ async def login_user(
     Return token values.
     """
     user = await authenticate_user(session, form_data.username, form_data.password)
-    tokens = await create_tokens(session, user)
-    await set_cookies(response, tokens["access_token"], tokens["refresh_token"])
+    tokens = await create_tokens(user)
+    await set_cookies(
+        response,
+        tokens["access_token"],
+        tokens["refresh_token"],
+        tokens["access_token_expires"],
+        tokens["refresh_token_expires"],
+    )
     return TokenOutput(**tokens, user_data=user)
 
 
@@ -236,8 +250,14 @@ async def refresh_user_token(
         except InvalidTokenError:
             raise wrong_credentials from None
         user = await UserDAO.get_first(session, filters=[FilterCondition(User.email == email)])
-        new_tokens = await create_tokens(session, user)
-        await set_cookies(response, new_tokens.get("access_token"), new_tokens.get("refresh_token"))
+        new_tokens = await create_tokens(user)
+        await set_cookies(
+            response,
+            new_tokens.get("access_token"),
+            new_tokens.get("refresh_token"),
+            new_tokens.get("access_token_expires"),
+            new_tokens.get("refresh_token_expires"),
+        )
         return TokenOutput(**new_tokens, user_data=user)
     else:
         raise wrong_credentials

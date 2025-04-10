@@ -16,23 +16,6 @@ class S3Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ENV_FILE, env_prefix="S3_", extra="ignore")
 
 
-class MinimaxSettings(BaseSettings):
-    API_KEY: str
-    BASE_URL: str = "https://api.minimaxi.chat/v1/"
-    GROUP_ID: str
-    VIDEO_GENERATION_ENDPOINT: str = "video_generation"
-    VIDEO_RETRIEVAL_ENDPOINT: str = "files/retrieve"
-    VIDEO_STATUS_ENDPOINT: str = "query"
-    CONTENT_TYPE: str = "application/json"
-    AUTHORITY_HEADER: dict = {"authority": "api.minimaxi.chat"}
-    SUCCESSFUL_STATUS: int = 0
-    STATUS_CALLBACK_URL: str = "https://api-magic.avetechnologies.pro/generations/callback_url"
-    DEFAULT_VIDEO_CONTENT_TYPE: str = "video/mp4"
-    DEFAULT_FILE_EXTENSION: str = ".mp4"
-
-    model_config = SettingsConfigDict(env_file=ENV_FILE, env_prefix="MINIMAX_", extra="ignore")
-
-
 class EmailServiceSettings(BaseSettings):
     SMTP_HOST: str
     SMTP_PORT: int
@@ -71,6 +54,14 @@ class DBSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ENV_FILE, env_prefix="DB_", extra="ignore")
 
 
+class UploadFileSettings(BaseSettings):
+    MAX_VIDEO_SIZE: int = 1024 * 1024 * 100  # 100 MB
+    MAX_IMAGE_SIZE: int = 1024 * 1024 * 20  # 20 MB
+    ALLOWED_IMAGE_CONTENT_TYPE: set[str] = {"image/png", "image/jpeg", "image/jpg"}
+    ALLOWED_VIDEO_CONTENT_TYPE: set[str] = {"video/mp4", "video/avi", "video/mov"}
+    MIN_IMAGE_DIMENSIONS: int = 300
+
+
 class Settings(BaseSettings):
     SERVICE_NAME: str = "moi"
     ENV: Literal["prod", "demo", "test"] = "demo"
@@ -80,8 +71,8 @@ class Settings(BaseSettings):
     auth: AuthSettings = AuthSettings()
     database: DBSettings = DBSettings()
     email_service: EmailServiceSettings = EmailServiceSettings()
-    minimax: MinimaxSettings = MinimaxSettings()
     s3: S3Settings = S3Settings()
+    upload_file: UploadFileSettings = UploadFileSettings()
 
     @property
     def VEIRIFICATION_URL(self) -> str:
@@ -90,6 +81,14 @@ class Settings(BaseSettings):
             if self.ENV == "prod"
             else "https://google.com/auth/verify?token="
         )
+
+    @property
+    def COOKIE_SECURE(self) -> bool:
+        return True
+
+    @property
+    def SAMESITE_VALUE(self) -> str:
+        return "Lax" if self.ENV == "prod" else "None"
 
     model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore")
 

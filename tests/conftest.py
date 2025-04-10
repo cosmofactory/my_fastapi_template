@@ -28,27 +28,41 @@ SessionLocal = async_sessionmaker(
 )
 
 
-@pytest.fixture(scope="session")
-async def session():
+@pytest.fixture(scope="session", autouse=True)
+async def setup_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    async with SessionLocal() as session:
+    yield
+    await engine.dispose()
 
-        def override_get_db():
-            return session
 
-        app.dependency_overrides[get_async_session] = override_get_db
+@pytest.fixture(scope="function")
+async def session():
+    async with engine.connect() as connection:
+        transaction = await connection.begin()
+        async with SessionLocal(bind=connection) as session:
+            yield session
+        await transaction.rollback()
+
+
+@pytest.fixture(autouse=True)
+async def override_db_session(session: AsyncSession):
+    async def _get_test_db():
         yield session
 
+    app.dependency_overrides[get_async_session] = _get_test_db
+    yield
+    app.dependency_overrides.pop(get_async_session, None)
 
-@pytest.fixture(scope="session")
+
+@pytest.fixture(scope="function")
 async def ac():
     """Create an AsyncClient instance."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as ac:
         yield ac
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 async def ac_client(session: AsyncSession):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as client:
         password = get_password_hash("client_password1")
@@ -72,7 +86,7 @@ async def ac_client(session: AsyncSession):
         yield client
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 async def ac_client_not_verified(session: AsyncSession):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as client:
         password = get_password_hash("client_password1")
