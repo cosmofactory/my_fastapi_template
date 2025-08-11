@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     SERVICE_NAME: str = "moi"
     ENV: Literal["prod", "demo", "test"] = "demo"
     LOGFIRE_TOKEN: str | None = None
-    PROJECT_NAME: str = "Magician of Images"
+    PROJECT_NAME: str = "Fastapi template"
 
     auth: AuthSettings = AuthSettings()
     database: DBSettings = DBSettings()

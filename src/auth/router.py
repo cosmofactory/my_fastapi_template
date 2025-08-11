@@ -12,7 +12,7 @@ from src.auth.service import (
     verify_email,
 )
 from src.core.schema import ErrorResponse
-from src.core.session import SessionDep
+from src.core.sessions import WriteDBSession
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 )
 async def register_user_handler(
     user_data: UserRegisterInput,
-    session: SessionDep,
+    session: WriteDBSession,
     background_tasks: BackgroundTasks,
 ) -> None:
     await register_user(user_data, session, background_tasks)
@@ -49,7 +49,7 @@ async def register_user_handler(
 async def login_handler(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     response: Response,
-    session: SessionDep,
+    session: WriteDBSession,
 ) -> TokenOutput:
     return await login_user(session, form_data, response)
 
@@ -65,7 +65,7 @@ async def login_handler(
     },
     response_model=TokenOutput,
 )
-async def refresh(request: Request, response: Response, session: SessionDep) -> TokenOutput:
+async def refresh(request: Request, response: Response, session: WriteDBSession) -> TokenOutput:
     return await refresh_user_token(session, request, response)
 
 
@@ -75,6 +75,6 @@ async def logout(response: Response) -> None:
 
 
 @router.get("/verify")
-async def verify_email_handler(token: str, session: SessionDep) -> None:
+async def verify_email_handler(token: str, session: WriteDBSession) -> None:
     await verify_email(token, session)
     return Response(status_code=status.HTTP_200_OK)

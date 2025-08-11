@@ -1,305 +1,483 @@
-"""
-Generic DAO Layer for SQLAlchemy with Pydantic Integration.
+from collections.abc import Mapping
+from typing import Any, Sequence, Type, TypeVar, overload
 
-This module provides a base Data Access Object (DAO) class for common asynchronous
-database operations using SQLAlchemy's ORM. It integrates Pydantic for data validation
-and transformation, ensuring that all data passed to and from the database conforms
-to a defined schema.
-
-Key Components:
----------------
-- **FilterCondition**: A wrapper for SQLAlchemy binary expressions that can be used to
-  construct dynamic query filters.
-- **BaseDAO**: A generic DAO class that provides methods for retrieving, creating,
-  and updating database records. All results are transformed into Pydantic models for
-  consistency across the application.
-
-Usage Example:
---------------
-Assume you have an ORM model `User` (which extends `Base`) and a corresponding Pydantic
-schema `UserSchema`. You can define a DAO for the User model as follows:
-
-    from myapp.models import User
-    from myapp.schemas import UserSchema
-    from myapp.dao import BaseDAO
-
-    class UserDAO(BaseDAO):
-        model = User
-        schema = UserSchema
-
-Then, you can use the DAO methods like this:
-
-    # Get all users with optional filtering, limit, and offset
-    users = await UserDAO.get_all(session, limit=10, offset=0)
-
-    # Get the first user matching a filter condition
-    from sqlalchemy import text
-    filters = [FilterCondition(User.name == "Alice")]
-    user = await UserDAO.get_first(session, filters=filters)
-
-    # Retrieve a user by ID, returning None if not found
-    user = await UserDAO.get_one_or_none(session, id=1)
-
-    # Retrieve a user by ID or raise a 404 HTTPException if not found
-    user = await UserDAO.get_object_or_404(session, id=1)
-
-    # Create a new user record
-    new_user = await UserDAO.create(session, name="Bob", email="bob@example.com")
-
-    # Update an existing user record (using merge)
-    updated_user = await UserDAO.update(session, id=1, name="Robert", email="robert@example.com")
-
-Notes:
-------
-- All models are expected to extend from the SQLAlchemy declarative base (`Base`).
-- The DAO methods handle transaction commit/rollback and refresh model instances
-  after changes.
-- Pydantic's `model_validate` method is used to convert ORM model instances to Pydantic
-  models, ensuring that the data is always validated before being used in the application.
-"""
-
-from dataclasses import dataclass
-from typing import Type, TypeVar
-
-import logfire
-from fastapi import HTTPException, status
 from fastapi_pagination import LimitOffsetPage
 from fastapi_pagination.ext.sqlalchemy import paginate
-from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.engine import Result
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql.elements import BinaryExpression
+from sqlalchemy.sql import ColumnElement
 
 from src.core.engine import Base
+from src.core.exceptions import ObjectNotFoundException
 
 T = TypeVar("T", bound=Base)
-S = TypeVar("TSchema", bound=BaseModel)
-
-
-@dataclass
-class FilterCondition:
-    """
-    Wraps a SQLAlchemy BinaryExpression by converting its left-hand side into a qualified column.
-    """
-
-    def __init__(self, expression: BinaryExpression):
-        if not isinstance(expression, BinaryExpression):
-            raise ValueError("Single argument must be a SQLAlchemy expression")
-        self.expression = expression
-
-    def to_expression(self):
-        return self.expression
 
 
 class BaseDAO:
-    """
-    A generic DAO class for common CRUD operations with SQLAlchemy and Pydantic integration.
-
-    This class provides asynchronous methods for retrieving, creating, and updating
-    database records. All records are converted to a Pydantic model using the specified schema.
-
-    Class Attributes:
-        model (Type[T]): The SQLAlchemy ORM model class.
-        schema (Type[S]): The Pydantic schema class corresponding to the ORM model.
-    """
-
     model: Type[T]
-    schema: Type[S]
 
     @classmethod
-    @logfire.instrument()
     async def get_all(
         cls,
         session: AsyncSession,
+        *where: ColumnElement,
+        order_by: Sequence[ColumnElement] = (),
         limit: int | None = None,
         offset: int | None = None,
-        filters: list[FilterCondition] | None = None,
-    ) -> list[S]:
+    ) -> list[T]:
         """
-        Retrieve all objects from the database, optionally filtered, with pagination.
+        Retrieve multiple records with optional filters, ordering, and pagination.
 
         Args:
-            session (AsyncSession): The active database session.
-            limit (int | None): Maximum number of records to return.
-            offset (int | None): Number of records to skip.
-            filters (list[FilterCondition] | None): A list of FilterCondition instances
-                to apply to the query.
+            session (AsyncSession): Database session.
+            *where (ColumnElement): SQLAlchemy filter expressions.
+            order_by (Sequence[ColumnElement]): SQLAlchemy ordering expressions.
+            limit (int, optional): Max number of records to return.
+            offset (int, optional): Number of records to skip.
 
         Returns:
-            list[S]: A list of Pydantic model instances representing the records.
+            list[T]: List of model instances.
+
+        Example:
+            users = await UserOrderDAO.get_all(
+                session,
+                UserOrder.user_id == user_id,
+                order_by=[UserOrder.created_at.desc()],
+                limit=20,
+                offset=0
+            )
         """
-        statement = select(cls.model).offset(offset).limit(limit)
-        if filters:
-            for f in filters:
-                statement = statement.where(f.to_expression())
-        results: Result = await session.execute(statement)
-        results = results.scalars().all()
-        return [cls.schema.model_validate(result) for result in results]
+        stmt = select(cls.model)
+
+        if where:
+            stmt = stmt.where(*where)
+
+        if order_by:
+            stmt = stmt.order_by(*order_by)
+
+        if offset is not None:
+            stmt = stmt.offset(offset)
+        if limit is not None:
+            stmt = stmt.limit(limit)
+
+        result = await session.execute(stmt)
+        return result.scalars().all()
 
     @classmethod
-    @logfire.instrument()
     async def get_first(
         cls,
         session: AsyncSession,
-        filters: list[FilterCondition] | None = None,
-    ) -> S | None:
+        *where: ColumnElement,
+    ) -> T | None:
         """
-        Retrieve the first record matching the optional filters.
+        Return the first record matching optional filters, or None if none found.
 
         Args:
-            session (AsyncSession): The active database session.
-            filters (list[FilterCondition] | None): A list of FilterCondition instances
-                to apply to the query.
+            session (AsyncSession): Database session.
+            *where (ColumnElement): SQLAlchemy filter expressions.
 
         Returns:
-            S | None: A Pydantic model instance of the first record found or None if no record matches.
+            T | None: A single model instance or None.
+
+        Example:
+            order = await UserOrderDAO.get_first(
+                session,
+                UserOrder.status == 'PENDING'
+            )
         """
-        statement = select(cls.model)
-        if filters:
-            for f in filters:
-                statement = statement.where(f.to_expression())
-        results: Result = await session.execute(statement)
+        stmt = select(cls.model)
+        if where:
+            stmt = stmt.where(*where)
+        results: Result = await session.execute(stmt)
         results = results.scalars().first()
-        if results:
-            return cls.schema.model_validate(results)
-        return None
+        return results
 
     @classmethod
-    @logfire.instrument()
     async def get_one_or_none(
         cls,
         session: AsyncSession,
-        id: int,
-    ) -> S | None:
+        *where: ColumnElement,
+    ) -> T | None:
         """
-        Retrieve a record by its primary key.
+        Return exactly one record matching filters, or None if zero found.
+        Raises if multiple records match.
 
         Args:
-            session (AsyncSession): The active database session.
-            id (int): The primary key of the record.
+            session (AsyncSession): Database session.
+            *where (ColumnElement): SQLAlchemy filter expressions.
 
         Returns:
-            S | None: A Pydantic model instance if the record is found, otherwise None.
+            T | None: A single model instance or None.
+
+        Example:
+            user = await UserOrderDAO.get_one_or_none(
+                session,
+                UserOrder.id == order_id
+            )
         """
-        result = await session.get(cls.model, id)
-        if result:
-            return cls.schema.model_validate(result)
-        return None
+        stmt = select(cls.model)
+        if where:
+            stmt = stmt.where(*where)
+        results: Result = await session.execute(stmt)
+        results = results.scalars().one_or_none()
+        return results
 
     @classmethod
-    @logfire.instrument()
-    async def get_object_or_404(
+    async def get_by_id(
         cls,
         session: AsyncSession,
-        filters: list[FilterCondition],
-    ) -> S | HTTPException:
+        id: int,
+    ) -> T | None:
         """
-        Retrieve a record by its primary key or raise an HTTP 404 error if not found.
+        Fetch a record by its primary key.
 
         Args:
-            session (AsyncSession): The active database session.
-            id (int): The primary key of the record.
+            session (AsyncSession): Database session.
+            id (int): Primary key value.
 
         Returns:
-            S: A Pydantic model instance of the found record.
+            T | None: Model instance or None if not found.
 
-        Raises:
-            HTTPException: If no record is found with the given id.
+        Example:
+            order = await UserOrderDAO.get_by_id(session, 123)
         """
-        statement = select(cls.model)
-        for f in filters:
-            statement = statement.where(f.to_expression())
-        results: Result = await session.execute(statement)
-        results = results.scalars().first()
-        if results:
-            return cls.schema.model_validate(results)
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        return await session.get(cls.model, id)
 
     @classmethod
-    @logfire.instrument()
-    async def create(cls, db: AsyncSession, **object_data: dict) -> S:
-        """
-        Create a new record in the database.
-
-        This method constructs a new ORM model instance from the provided keyword arguments,
-        adds it to the session, commits the transaction, and then transforms the result into
-        a Pydantic model.
-
-        Args:
-            db (AsyncSession): The active database session.
-            **object_data (dict): Key-value pairs corresponding to the model's fields.
-
-        Returns:
-            S: A Pydantic model instance representing the newly created record.
-
-        Raises:
-            HTTPException: If an IntegrityError occurs (e.g., due to a duplicate record).
-        """
-        try:
-            model_object = cls.model(**object_data)
-            db.add(model_object)
-            await db.commit()
-            await db.refresh(model_object)
-            return cls.schema.model_validate(model_object)
-        except IntegrityError:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Object already exists"
-            ) from None
-
-    @classmethod
-    @logfire.instrument()
-    async def update(cls, db: AsyncSession, **object_data: dict) -> S:
-        """
-        Update an existing record in the database by merging the provided data.
-
-        This method creates an ORM model instance from the provided keyword arguments,
-        merges it into the current session (thereby updating the existing record),
-        commits the transaction, and returns the updated record as a Pydantic model.
-        The object_data must include the primary key to identify which record to update.
-
-        Args:
-            db (AsyncSession): The active database session.
-            **object_data (dict): Key-value pairs corresponding to the model's fields,
-                including the primary key.
-
-        Returns:
-            S: A Pydantic model instance representing the updated record.
-
-        Raises:
-            HTTPException: If an IntegrityError occurs during the update operation.
-        """
-        try:
-            model_object = cls.model(**object_data)
-            merged_object = await db.merge(model_object)
-            await db.commit()
-            await db.refresh(merged_object)
-            return cls.schema.model_validate(merged_object)
-        except IntegrityError:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Failed to update the object due to integrity constraints.",
-            ) from None
-
-    @classmethod
-    @logfire.instrument()
     async def get_paginated(
         cls,
         session: AsyncSession,
-        filters: list[FilterCondition] | None = None,
+        *where: ColumnElement,
     ) -> LimitOffsetPage[T]:
         """
         Retrieve objects from the database with fastapi-pagination integration.
 
         Pagination (limit/offset) will be applied at the DB level.
-        Returned model in items attribute will be transformed to Pydantic model that
-         is stated in the router.
+
+        Args:
+            session (AsyncSession): Database session.
+            *where (ColumnElement): SQLAlchemy filter expressions.
+
+        Returns:
+            LimitOffsetPage[T]: Paginated results.
+
+        Example:
+            paginated_orders = await UserOrderDAO.get_paginated(
+                session,
+                UserOrder.user_id == user_id
+            ).
         """
         stmt = select(cls.model)
-        if filters:
-            for f in filters:
-                stmt = stmt.where(f.to_expression())
+        if where:
+            stmt = stmt.where(*where)
         return await paginate(session, stmt)
+
+    @classmethod
+    async def get_object_or_error(
+        cls,
+        session: AsyncSession,
+        *where: ColumnElement,
+    ) -> T | ValueError:
+        """
+        Return the first record matching filters, or raise ObjectNotFoundException.
+
+        Args:
+            session (AsyncSession): Database session.
+            *where (ColumnElement): SQLAlchemy filter expressions.
+
+        Returns:
+            T: A single model instance.
+
+        Raises:
+            ObjectNotFoundException: If no record matches.
+
+        Example:
+            order = await UserOrderDAO.get_object_or_error(
+                session,
+                UserOrder.id == order_id
+            )
+        """
+        stmt = select(cls.model)
+        if where:
+            stmt = stmt.where(*where)
+        results: Result = await session.execute(stmt)
+        results = results.scalars().first()
+        if results:
+            return results
+        raise ObjectNotFoundException(f"Object of type {cls.model.__name__} not found.")
+
+    @overload
+    async def create(cls, db: AsyncSession, object_data: T) -> T: ...
+
+    @overload
+    async def create(cls, db: AsyncSession, object_data: Mapping[str, Any]) -> T: ...
+
+    @classmethod
+    async def create(
+        cls,
+        db: AsyncSession,
+        *args: Any,
+        **kwargs: Any,
+    ) -> T:
+        """
+        Instantiate and persist a new record, returning the instance.
+
+        Args:
+            db (AsyncSession): Database session (in transaction).
+            object_data (T | dict[str, Any]): Model instance or dict with fields to set.
+
+        Returns:
+            T: The newly created model instance.
+
+        Example:
+            new_order = await UserOrderDAO.create(
+                session,
+                user_id=42,
+                amount=Decimal('99.99')
+            )
+
+            or
+
+            new_order = await UserOrderDAO.create(
+                session,
+                UserOrder(user_id=42, amount=Decimal('99.99'))
+            )
+        """
+        if args and isinstance(args[0], cls.model):
+            instance = args[0]
+        elif args and isinstance(args[0], Mapping):
+            instance = cls.model(**args[0])
+        elif "object_data" in kwargs and isinstance(kwargs["object_data"], Mapping):
+            instance = cls.model(**kwargs.pop("object_data"))
+        else:
+            instance = cls.model(**kwargs)
+        db.add(instance)
+        await db.flush()
+        await db.refresh(instance)
+        return instance
+
+    @overload
+    async def update(
+        cls,
+        db: AsyncSession,
+        object_data: T,
+    ) -> T: ...
+
+    @overload
+    async def update(
+        cls,
+        db: AsyncSession,
+        object_data: Mapping[str, Any],
+    ) -> T: ...
+
+    @classmethod
+    async def update(
+        cls,
+        db: AsyncSession,
+        *args: Any,
+        **kwargs: Any,
+    ) -> T:
+        """
+        Merge and persist changes for an existing record by primary key.
+
+        Args:
+            db (AsyncSession): Database session (in transaction).
+            object_data (T | dict[str, Any]): Model instance or dict with fields to update.
+
+        Returns:
+            T: The updated model instance.
+
+        Example:
+            updated = await UserOrderDAO.update(
+                session,
+                id=123,
+                status='WORKING'
+            )
+
+            or
+
+            updated = await UserOrderDAO.update(
+                session,
+                UserOrder(id=123, status='WORKING')
+            )
+        """
+        if args:
+            data = args[0]
+            if isinstance(data, cls.model):
+                instance = data
+            elif isinstance(data, Mapping):
+                instance = cls.model(**data)
+            else:
+                raise TypeError(f"Unexpected update arg: {data!r}")
+        else:
+            instance = cls.model(**kwargs)
+        merged_object = await db.merge(instance)
+        await db.flush()
+        await db.refresh(merged_object)
+        return merged_object
+
+    @classmethod
+    async def delete(
+        cls,
+        db: AsyncSession,
+        id: Any,
+    ) -> None:
+        """
+        Delete a single record by primary key.
+
+        Args:
+            db (AsyncSession): Database session (in transaction).
+            id (Any): Primary‐key value of the record to delete.
+
+        Raises:
+            ObjectNotFoundException: If no record with that PK exists.
+
+        Example:
+            await UserOrderDAO.delete(session, 123)
+        """
+        stmt = delete(cls.model).where(cls.model.id == id)
+        result = await db.execute(stmt)
+        await db.flush()
+        if (result.rowcount or 0) == 0:
+            raise ObjectNotFoundException(f"Object of type {cls.model.__name__} not found.")
+
+    @classmethod
+    async def bulk_create(
+        cls,
+        db: AsyncSession,
+        objects_data: Sequence[dict[str, Any]],
+        batch_size: int = 100,
+    ) -> list[T]:
+        """
+        Bulk-insert multiple records in batches.
+
+        Args:
+            db (AsyncSession): Database session (in transaction).
+            objects_data (Sequence[dict[str, Any]]): List of field‐value dicts for new records.
+            batch_size (int, optional): Number of records per batch. Defaults to 100.
+
+        Returns:
+            list[T]: List of newly created model instances.
+
+        Example:
+            new_orders = await UserOrderDAO.bulk_create(
+                session,
+                [
+                    {"user_id": 1, "amount": Decimal("9.99")},
+                    {"user_id": 2, "amount": Decimal("19.99")},
+                    # ...
+                ],
+                batch_size=50,
+            )
+        """
+        created: list[T] = []
+        for i in range(0, len(objects_data), batch_size):
+            chunk = objects_data[i : i + batch_size]
+            instances = [cls.model(**data) for data in chunk]
+            db.add_all(instances)
+            await db.flush()
+            for instance in instances:
+                await db.refresh(instance)
+            created.extend(instances)
+        return created
+
+    @classmethod
+    async def bulk_update(
+        cls,
+        db: AsyncSession,
+        objects_data: Sequence[dict[str, Any]],
+        batch_size: int = 100,
+    ) -> list[T]:
+        """
+        Bulk-merge (update) multiple records in batches.
+
+        Args:
+            db (AsyncSession): Database session (in transaction).
+            objects_data (Sequence[dict[str, Any]]): List of dicts containing primary key + fields to update.
+            batch_size (int, optional): Number of records per batch. Defaults to 100.
+
+        Returns:
+            list[T]: List of updated model instances.
+
+        Example:
+            updated = await UserOrderDAO.bulk_update(
+                session,
+                [
+                    {"id": 1, "status": "COMPLETED"},
+                    {"id": 2, "amount": Decimal("49.99")},
+                ],
+                batch_size=50,
+            )
+        """
+        updated_instances: list[T] = []
+        for i in range(0, len(objects_data), batch_size):
+            chunk = objects_data[i : i + batch_size]
+            instances = [cls.model(**data) for data in chunk]
+            merged = []
+            for inst in instances:
+                merged_inst = await db.merge(inst)
+                merged.append(merged_inst)
+            await db.flush()
+            for inst in merged:
+                await db.refresh(inst)
+            updated_instances.extend(merged)
+        return updated_instances
+
+    @classmethod
+    async def bulk_delete(
+        cls,
+        db: AsyncSession,
+        ids: Sequence[Any],
+        batch_size: int = 100,
+    ) -> int:
+        """
+        Bulk-delete multiple records by primary-key values in batches.
+
+        Args:
+            db (AsyncSession): Database session (in transaction).
+            ids (Sequence[Any]): List of primary-key values to delete.
+            batch_size (int, optional): Number of records to delete per batch. Defaults to 100.
+
+        Returns:
+            int: Total number of rows deleted.
+
+        Example:
+            deleted_count = await UserOrderDAO.bulk_delete(
+                session,
+                [1, 2, 3, 4],
+                batch_size=2,
+            )
+        """
+        total_deleted = 0
+        for i in range(0, len(ids), batch_size):
+            chunk = ids[i : i + batch_size]
+            stmt = delete(cls.model).where(cls.model.id.in_(chunk))
+            result = await db.execute(stmt)
+            await db.flush()
+            total_deleted += result.rowcount or 0
+        return total_deleted
+
+    @classmethod
+    async def bulk_get(
+        cls,
+        session: AsyncSession,
+        ids: Sequence[Any],
+    ) -> list[T]:
+        """
+        Retrieve multiple records by a list of primary-key values.
+
+        Args:
+            session (AsyncSession): Database session.
+            ids (Sequence[Any]): List of primary-key values to fetch.
+            preserve_order (bool): If True, results are returned in the same order as `ids`.
+
+        Returns:
+            list[T]: List of model instances.
+
+        Example:
+            users = await UserDAO.bulk_get(session, [3, 1, 2], preserve_order=True)
+        """
+        stmt = select(cls.model).where(cls.model.id.in_(ids))
+        result = await session.execute(stmt)
+        return result.scalars().all()

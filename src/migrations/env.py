@@ -7,7 +7,6 @@ from src.core.engine import Base
 from src.settings import settings
 
 from src.users.models import User  # noqa
-from src.generations.models import Generation  # noqa
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

@@ -16,7 +16,6 @@ from src.auth.schema import (
     UserLoginOutput,
     UserRegisterInput,
 )
-from src.core.base_dao import FilterCondition
 from src.core.exceptions import (
     CouldNotValidateCredentialsException,
     InvalidCredentialsException,
@@ -28,7 +27,7 @@ from src.core.exceptions import (
     UserNotFoundException,
     VerificationRequiredException,
 )
-from src.core.session import get_async_session
+from src.core.sessions import get_read_session
 from src.emails.service import render_verification_email, send_email
 from src.settings import settings
 from src.users.dao import UserDAO
@@ -53,16 +52,14 @@ def verify_password(plain_password: str, hashed_password: str | None) -> bool:
 
 async def check_user_exists(session: AsyncSession, user_data: UserRegisterInput) -> None:
     """Check if the user with the provided email exists and hash the password."""
-    check_existing_user = await UserDAO.get_first(
-        session, filters=[FilterCondition(User.email == user_data.email)]
-    )
+    check_existing_user = await UserDAO.get_first(session, User.email == user_data.email)
     if check_existing_user:
         raise UserExistsException
 
 
 async def authenticate_user(session: AsyncSession, email, password) -> UserLoginOutput:
     """Check if the user with the provided email and password exists."""
-    user: User = await UserDAO.get_first(session, filters=[FilterCondition(User.email == email)])
+    user: User = await UserDAO.get_first(session, User.email == email)
     logfire.info("User", user=user)
     if not user or not verify_password(password, user.password):
         raise InvalidCredentialsException
@@ -141,7 +138,7 @@ async def set_cookies(
 
 
 async def get_current_user(
-    token: Annotated[str, Depends(oauth2_scheme)], session=Depends(get_async_session)
+    token: Annotated[str, Depends(oauth2_scheme)], session: AsyncSession = Depends(get_read_session)
 ) -> CurrentUser:
     """Get the current user with the given token."""
     credentials_exception = CouldNotValidateCredentialsException
@@ -155,9 +152,7 @@ async def get_current_user(
         token_data = TokenData(email=email)
     except InvalidTokenError:
         raise credentials_exception from None
-    user: SUser = await UserDAO.get_first(
-        session, filters=[FilterCondition(User.email == token_data.email)]
-    )
+    user: SUser = await UserDAO.get_first(session, User.email == token_data.email)
     if not user:
         raise credentials_exception
     return CurrentUser.model_validate(user)
@@ -249,7 +244,7 @@ async def refresh_user_token(
             email: str = payload.get("sub")
         except InvalidTokenError:
             raise wrong_credentials from None
-        user = await UserDAO.get_first(session, filters=[FilterCondition(User.email == email)])
+        user = await UserDAO.get_first(session, User.email == email)
         new_tokens = await create_tokens(user)
         await set_cookies(
             response,
@@ -305,7 +300,7 @@ async def verify_email(token: str, session: AsyncSession) -> None:
     except jwt.InvalidTokenError as e:
         raise InvalidTokenTypeException from e
 
-    user: SUser = await UserDAO.get_first(session, filters=[FilterCondition(User.email == email)])
+    user: SUser = await UserDAO.get_first(session, User.email == email)
     if not user:
         raise UserNotFoundException
 
