@@ -6,6 +6,9 @@ lint:
 run:
 	uv run fastapi dev src/main.py
 
+run_container:
+	docker compose up --build
+
 # Alembic block:
 # To create a new migration, run the following command:
 makemigrations:

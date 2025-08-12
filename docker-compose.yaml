@@ -3,14 +3,14 @@ services:
     build: .
     command: uv run uvicorn src.main:app --workers 4 --forwarded-allow-ips '*' --proxy-headers --host 0.0.0.0 --port 8000
     ports:
-      - 8081:8000
+      - 8000:8000
     depends_on:
-      - db
+      - ops_db
     restart: always
     env_file:
       - .env
 
-  db:
+  ops_db:
     image: postgres:16
     volumes:
       - postgres_data:/var/lib/postgresql/data/

@@ -6,24 +6,36 @@ ENV_FILE: str = ".env"
 
 
 class S3Settings(BaseSettings):
-    ACCESS_KEY: str
-    SECRET_KEY: str
+    """
+    This is a placeholder for S3 settings.
+
+    TODO remove it if no S3 service is needed.
+    """
+
+    ACCESS_KEY: str | None = None
+    SECRET_KEY: str | None = None
     ENDPOINT_URL: str = "https://s3storage1.fra1.digitaloceanspaces.com"
     REGION: str = "fra1"
-    BUCKET_NAME: str
+    BUCKET_NAME: str | None = None
     URL_EXPIRATION_SECONDS: int = 3600
 
     model_config = SettingsConfigDict(env_file=ENV_FILE, env_prefix="S3_", extra="ignore")
 
 
 class EmailServiceSettings(BaseSettings):
-    SMTP_HOST: str
-    SMTP_PORT: int
-    SMTP_USERNAME: str
-    SMTP_PASSWORD: str
-    EMAIL_FROM: str
-    SMTP_STARTTLS: bool
-    SMTP_SSL_TLS: bool
+    """
+    This is a placeholder for email settings.
+
+    TODO remove it if no email service needed in this repo.
+    """
+
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int | None = None
+    SMTP_USERNAME: str | None = None
+    SMTP_PASSWORD: str | None = None
+    EMAIL_FROM: str | None = None
+    SMTP_STARTTLS: bool | None = None
+    SMTP_SSL_TLS: bool | None = None
 
     model_config = SettingsConfigDict(env_file=ENV_FILE, env_prefix="EMAIL_", extra="ignore")
 
@@ -63,10 +75,10 @@ class UploadFileSettings(BaseSettings):
 
 
 class Settings(BaseSettings):
-    SERVICE_NAME: str = "moi"
+    SERVICE_NAME: str = "Template project"
     ENV: Literal["prod", "demo", "test"] = "demo"
     LOGFIRE_TOKEN: str | None = None
-    PROJECT_NAME: str = "Fastapi template"
+    PROJECT_NAME: str = "Template project"
 
     auth: AuthSettings = AuthSettings()
     database: DBSettings = DBSettings()

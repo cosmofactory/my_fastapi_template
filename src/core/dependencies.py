@@ -6,9 +6,9 @@ from fastapi import Depends
 from fastapi_pagination.limit_offset import LimitOffsetParams
 
 from src.auth.schema import CurrentUser
-from src.auth.service import get_current_verified_user
+from src.auth.service import get_current_user
 
-CurrentUserDep = Annotated[CurrentUser, Depends(get_current_verified_user)]
+CurrentUserDep = Annotated[CurrentUser, Depends(get_current_user)]
 
 
 async def get_http_client() -> AsyncGenerator[httpx.AsyncClient, None]:

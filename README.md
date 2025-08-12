@@ -58,7 +58,20 @@ similar to `rye` or `poetry`:
 1. Clone the repo:
 
 ```bash
-TBA
+******
+```
+
+2. Create virtual environment:
+
+```bash
+uv venv
+```
+
+3. Activate venv:
+
+```bash
+# On linux/mac
+source .venv/bin/activate
 ```
 
 ## Running application
@@ -69,8 +82,17 @@ Run FastAPI in debug mode (without solr service):
 Note, if you are running this project on Windows, Makefile will not work.
 Just copy the necessary commands from Makefile to terminal and run them.
 
+Note: Makefile will work only on Linux/Mac machines, on Windows just copy the
+nessary commands from Makefile.
+
 ```bash
+# Run locally
 make  run
+```
+
+```bash
+# Run in docker containers
+make run_container
 ```
 
 To run the test cases:

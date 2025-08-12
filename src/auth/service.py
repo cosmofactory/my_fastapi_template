@@ -3,7 +3,7 @@ from typing import Annotated
 
 import jwt
 import logfire
-from fastapi import BackgroundTasks, Depends, Request, Response, Security
+from fastapi import BackgroundTasks, Depends, Request, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jwt.exceptions import InvalidTokenError
 from passlib.context import CryptContext
@@ -25,14 +25,12 @@ from src.core.exceptions import (
     TokenExpiredException,
     UserExistsException,
     UserNotFoundException,
-    VerificationRequiredException,
 )
 from src.core.sessions import get_read_session
 from src.emails.service import render_verification_email, send_email
 from src.settings import settings
 from src.users.dao import UserDAO
 from src.users.models import User
-from src.users.schema import SUser
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
@@ -152,19 +150,10 @@ async def get_current_user(
         token_data = TokenData(email=email)
     except InvalidTokenError:
         raise credentials_exception from None
-    user: SUser = await UserDAO.get_first(session, User.email == token_data.email)
+    user = await UserDAO.get_first(session, User.email == token_data.email)
     if not user:
         raise credentials_exception
     return CurrentUser.model_validate(user)
-
-
-async def get_current_verified_user(
-    current_user: Annotated[CurrentUser, Security(get_current_user)],
-) -> CurrentUser:
-    """Get current user with extra scope."""
-    if current_user.is_verified is False:
-        raise VerificationRequiredException
-    return current_user
 
 
 async def register_user(
@@ -264,7 +253,11 @@ def create_email_verification_token(
         hours=settings.auth.EMAIL_VERIFICATION_EXPIRATION_HOURS
     ),
 ) -> str:
-    """Create a token for email verification."""
+    """
+    Create a token for email verification.
+
+    TODO remove this if not needed.
+    """
     payload = {
         "sub": email,
         "verify": True,
@@ -274,7 +267,11 @@ def create_email_verification_token(
 
 
 async def send_verification_email(email: str, token: str) -> None:
-    """Send email with the verification token."""
+    """
+    Send email with the verification token.
+
+    TODO remove this if not needed.
+    """
     verification_link = f"{settings.VEIRIFICATION_URL}{token}"
     email_body = render_verification_email(email, verification_link)
     await send_email(email, f"Email Verification for {settings.PROJECT_NAME}", email_body)
@@ -285,6 +282,7 @@ async def verify_email(token: str, session: AsyncSession) -> None:
     Verify the email with the given token.
 
     Update user in database in case of successful verification.
+    TODO remove this is email verification is not needed.
     """
     try:
         payload = jwt.decode(
@@ -300,9 +298,7 @@ async def verify_email(token: str, session: AsyncSession) -> None:
     except jwt.InvalidTokenError as e:
         raise InvalidTokenTypeException from e
 
-    user: SUser = await UserDAO.get_first(session, User.email == email)
+    user = await UserDAO.get_first(session, User.email == email)
     if not user:
         raise UserNotFoundException
-
-    user.is_verified = True
     await UserDAO.update(session, user)

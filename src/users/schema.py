@@ -7,9 +7,8 @@ class UserOutput(BaseModel):
     email: EmailStr
 
 
-class SUser(STimetampedModel):
+class UserDTO(STimetampedModel):
     id: int
     email: EmailStr
     password: str
     is_superuser: bool
-    is_verified: bool

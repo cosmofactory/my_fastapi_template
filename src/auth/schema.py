@@ -15,7 +15,6 @@ class UserLoginOutput(OrmModel):
 
     id: int
     email: EmailStr
-    is_verified: bool
 
 
 class CurrentUser(UserLoginOutput):

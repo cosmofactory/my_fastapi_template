@@ -3,7 +3,7 @@ from sqladmin.authentication import AuthenticationBackend
 from starlette.requests import Request
 
 from src.auth.service import authenticate_user, create_tokens, get_current_user
-from src.core.engine import async_session_maker
+from src.core.sessions import get_read_session
 
 
 class AdminAuth(AuthenticationBackend):
@@ -14,7 +14,7 @@ class AdminAuth(AuthenticationBackend):
         Get the user from the database and check if the user is an admin.
         In case of success, create a token and save it to the session.
         """
-        async with async_session_maker() as session:
+        async with get_read_session() as session:
             form = await request.form()
             email, password = form["username"], form["password"]
             try:
@@ -36,9 +36,9 @@ class AdminAuth(AuthenticationBackend):
         Check if the user is authenticated and is an admin.
         """
         if token := request.session.get("token"):
-            async with async_session_maker() as db:
+            async with get_read_session() as session:
                 try:
-                    if user := await get_current_user(token, db):
+                    if user := await get_current_user(token, session):
                         if user.is_superuser:
                             return True
                 except HTTPException:

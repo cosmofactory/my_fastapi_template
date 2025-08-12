@@ -30,6 +30,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.postgres_db = database
         stack.push_async_callback(database.dispose)
 
+        # === Admin UI (needs engine; create AFTER DB is set) ===
+        admin = Admin(
+            app,
+            engine=database._engine,
+            title="Internal admin",
+            authentication_backend=authentication_backend,
+        )
+        admin.add_view(UserAdmin)
         yield
 
 
@@ -62,11 +70,3 @@ app.add_middleware(
 )
 
 add_pagination(app)
-
-admin = Admin(
-    app,
-    engine=app.state.postgres_db._engine,
-    title="Internal admin",
-    authentication_backend=authentication_backend,
-)
-admin.add_view(UserAdmin)

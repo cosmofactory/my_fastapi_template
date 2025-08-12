@@ -1,7 +1,7 @@
 [project]
-name = "moi-backend"
+name = "template-project"
 version = "0.1.0"
-description = "Add your description here"
+description = "Template project"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
